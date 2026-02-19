@@ -63,3 +63,7 @@ def validate_student(student_id,gender,program_code):
     if not any(row['program_code']== program_code for row in read_data('programs.csv')):
         return False, f"Program {program_code} not found."
     return True, "Valid"
+
+def parent_exists(parent_filename, parent_column, value):
+    data = read_data(parent_filename)
+    return any(row.get(parent_column, "").strip() == str(value).strip for row in data)
