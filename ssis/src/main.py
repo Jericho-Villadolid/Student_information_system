@@ -3,7 +3,7 @@ from gui import SSIS_APP
 
 def main():
     root = tk.Tk()
-    app = SSIS_APP(root)
+    SSIS_APP(root)
     root.mainloop()
 
 if __name__ == "__main__":

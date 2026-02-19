@@ -9,41 +9,54 @@ class SSIS_APP:
         self.root.geometry("1000x600")
 
         #sidebar
-        self.sidebar = tk.Frame(self.root, bg="#2c3e50", width=200)
+        self.sidebar = tk.Frame(self.root, bg="#e9edc9", width=200)
         self.sidebar.pack(side="left", fill="y")
 
         #main window
-        self.main_window = tk.Frame(self.root, bg="white")
+        self.main_window = tk.Frame(self.root, bg="#fefae0")
         self.main_window.pack(side="right",expand=True,fill="both")
 
         #header
-        self.header = tk.Frame(self.main_window, height=50, bg="#ecf0f1")
+        self.header = tk.Frame(self.main_window, height=50, bg="#DDA15E")
         self.header.pack(side="top", fill="x")
 
         self.setup_sidebar()
         self.setup_main_window()
 
     def setup_sidebar(self):
-        tk.Label(self.sidebar, text="Menu", fg="white", bg="#2c3e50", font=("Arial",14,"bold")).pack(pady=20)
+        tk.Label(self.sidebar, text="Menu", fg="black", bg="#e9edc9", font=("Arial",14,"bold")).pack(pady=20)
 
-        btn_config = {"font": ("Arial", 12), "bg": "#34495e", "fg": "white", "activebackground": "#1abc9c", "relief": "flat", "pady": 10}
+        btn_config = {"font": ("Arial", 12), "bg": "#ccd5ae", "fg": "black", "activebackground": "#d4a373", "relief": "flat", "pady": 10}
         
         tk.Button(self.sidebar, text="Students", command=lambda: self.switch_view("students"), **btn_config).pack(fill="x", padx=10, pady=5)
         tk.Button(self.sidebar, text="Programs", command=lambda: self.switch_view("programs"), **btn_config).pack(fill="x", padx=10, pady=5)
         tk.Button(self.sidebar, text="Colleges", command=lambda: self.switch_view("colleges"), **btn_config).pack(fill="x", padx=10, pady=5)
     
     def setup_main_window(self):
-        ctrl_frame = tk.Frame(self.main_window, bg="white", pady=10)
+        ctrl_frame = tk.Frame(self.main_window, bg="#fefae0", pady=10)
         ctrl_frame.pack(fill="x", padx=20)
 
-        self.search_entry = tk.Entry(ctrl_frame, font=("Arial", 12), width=30)
-        self.search_entry.pack(side="left", padx=5)
+        self.top_bar = tk.Frame(self.main_window, bg="#fefae0", height=40)
+        self.top_bar.pack(side="top", fill="x", padx=20, pady=0)
+
+        self.placeholder_text = "Search..."
+        self.search_entry = tk.Entry(self.top_bar, font=('Arial', 12), width=40, bd=2, relief="groove", fg="gray")
+        self.search_entry.insert(0, self.placeholder_text)
+
+        self.search_entry.bind("<FocusIn>", self.clear_placeholder)
+        self.search_entry.bind("<FocusOut>", self.restore_placeholder)
+        self.search_entry.pack(side="left", padx=15, pady=20)
 
         self.sort_var = tk.StringVar(value="Sort by:")
-        self.sort_menu = ttk.Combobox(ctrl_frame, textvariable=self.sort_var, values=["ID", "Name", "Code"])
+        self.sort_menu = ttk.Combobox(
+            self.top_bar,
+            textvariable=self.sort_var,
+            values=["ID", "Name", "Course", "Year Level", "College"],
+            state="readonly")
+        self.sort_menu.config(width=15)
         self.sort_menu.pack(side="left", padx=10)
 
-        self.add_btn = tk.Button(ctrl_frame, text="+ Add New", bg="#27ae60", fg="white", font=("Arial", 10, "bold"), command=self.open_add_form)
+        self.add_btn = tk.Button(self.top_bar, text="+ Add New", bg="#ccd5ae", fg="black", font=("Arial", 10), command=self.open_add_form)
         self.add_btn.pack(side="right", padx=5)
 
         #Treeview
@@ -84,3 +97,13 @@ class SSIS_APP:
 
     def open_add_form(self):
         messagebox.showinfo("Add Info", f"Opening form for {self.current_view}")
+
+    def clear_placeholder(self, event):
+        if self.search_entry.get() == self.placeholder_text:
+            self.search_entry.delete(0, tk.END)
+            self.search_entry.config(fg="black")
+
+    def restore_placeholder(self, event):
+        if not self.search_entry.get():
+            self.search_entry.insert(0, self.placeholder_text)
+            self.search_entry.config(fg="gray")
