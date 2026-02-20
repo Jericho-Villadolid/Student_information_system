@@ -7,7 +7,7 @@ DATA_DIR = os.path.join(BASE_DIR, '..', 'data')
 GENDER_OPTIONS = ["M", "F", "O"]
 
 def get_file_path(filename):
-    return os.path.join(DATA_DIR,filename)
+    return os.path.join(DATA_DIR, filename)
 
 def read_data(filename):
     file_path = get_file_path(filename)
@@ -17,23 +17,32 @@ def read_data(filename):
         reader = csv.DictReader(file, skipinitialspace=True)
         return list(reader)
 
-def save_data(filename,fieldnames,data_list):
-    file_path = get_file_path(filename)
-    with open(file_path, mode='w', newline='', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
-        writer.writeheader
-        writer.writerows(data_list)
+def save_data(filename, headers, data):
+    full_path = get_file_path(filename)
+    with open(full_path, mode='w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(data)
 
-def append_row(filename,fieldnames,row_dict):
-    file_path = get_file_path(filename)
-    file_exists = os.path.isfile(file_path)
-
-    with open(file_path, mode='a', newline='', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
+def append_row(filename, headers, new_row_dict):
+    full_path = get_file_path(filename)
+    # Check if file exists to decide if we need headers
+    file_exists = os.path.isfile(full_path) and os.path.getsize(full_path) > 0
+    
+    with open(full_path, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
         if not file_exists:
             writer.writeheader()
-        writer.writerow(row_dict)
-        
+        writer.writerow(new_row_dict)
+
+def update_row(filename, pk_value, updated_dict):
+    data = read_data(filename)
+    id_field = list(updated_dict.keys())[0]
+    for i, row in enumerate(data):
+        if str(row[id_field]) == str(pk_value):
+            data[i] = updated_dict
+            break 
+    save_data(filename, list(updated_dict.keys()), data)
 
 def is_unique(filename,column_name,new_value):
     current_data = read_data(filename)
@@ -67,3 +76,11 @@ def validate_student(student_id,gender,program_code):
 def parent_exists(parent_filename, parent_column, value):
     data = read_data(parent_filename)
     return any(row.get(parent_column, "").strip() == str(value).strip for row in data)
+
+def delete_record(filename, pk_column, pk_value):
+    data = read_data(filename)
+    if not data:
+        return
+    headers = list(data[0].keys())
+    new_data = [row for row in data if str(row[pk_column]) != str(pk_value)]
+    save_data(filename, headers, new_data)
