@@ -1,14 +1,26 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+import pyglet
+import os
+import csv
+from tkinter import ttk, messagebox, filedialog
 import database as db
 
 class SSIS_APP:
     def __init__(self, root):
         self.root = root
+        self.root.after(200, lambda: self.switch_view("students"))
         self.root.title("Student Information System")
         self.root.state("zoomed")
+
+        base_path = os.path.dirname(__file__)
+        font_path = os.path.join(base_path, 'assets', 'Material_Icons.ttf')
+
+        self.current_sort_col = None
+        self.current_sort_reverse = False
+
         self.root.bind("<Button-1>", self.unfocus_widgets)
-        self.root.bind("<Configure>", self.on_window_resize)
+        self.root.bind("<Control-Right>", lambda e: self.next_page())
+        self.root.bind("<Control-Left>", lambda e: self.prev_page())
         
         # 1. Initialize State Variables
         self.current_view = "students"
@@ -29,7 +41,7 @@ class SSIS_APP:
         # Call setup methods in order
         self.setup_sidebar()
         self.setup_main_window()
-        self.setup_pagination_ui()
+
 
         # 3. Load data
         self.switch_view("students")
@@ -42,7 +54,7 @@ class SSIS_APP:
             background="#101218", 
             foreground="#f1f5f9", 
             fieldbackground="#101218", 
-            rowheight=45, 
+            rowheight=60, 
             font=("Arial", 10)
         )
         style.configure("Treeview.Heading", 
@@ -54,6 +66,9 @@ class SSIS_APP:
         style.map("Treeview", 
             background=[('selected', '#8c52ff')], 
             foreground=[('selected', '#f1f5f9')]
+        )
+        style.configure("Icon.Treeview",
+                        font=("Material Icons", 14)
         )
         style.map("TCombobox", 
         fieldbackground=[("readonly", "#334155"), ("disabled", "#1a1a1a")],
@@ -90,11 +105,9 @@ class SSIS_APP:
     def setup_main_window(self):
         self.main_window.configure(bg="#101218")
 
-        # Action Bar (Search + Add)
         self.top_bar = tk.Frame(self.main_window, bg="#101218")
         self.top_bar.pack(side="top", fill="x", padx=20, pady=10)
 
-        # Search Bar Capsule
         self.placeholder_text = "Search..."
         search_frame = tk.Frame(self.top_bar, bg="#334155", bd=0)
         search_frame.pack(side="left", padx=10)
@@ -102,60 +115,64 @@ class SSIS_APP:
         self.search_entry = tk.Entry(search_frame, font=('Arial', 12), width=40, 
                                      bg="#334155", fg="#f1f5f9", 
                                      insertbackground="#8c52ff", relief="flat")
-        # Pack entry with right padding to make room for the X
         self.search_entry.pack(side="left", padx=(10, 5), pady=8)
         self.search_entry.insert(0, self.placeholder_text)
 
-        # The Clear Button (hidden by default)
         self.clear_btn = tk.Button(search_frame, text="✕", bg="#334155", fg="#64748b",
                                    activebackground="#334155", activeforeground="#8c52ff",
                                    relief="flat", bd=0, cursor="hand2", font=("Arial", 10, "bold"),
                                    command=self.clear_search_text)
 
-        # Bindings
         self.search_entry.bind("<FocusIn>", self.clear_placeholder)
         self.search_entry.bind("<FocusOut>", self.restore_placeholder)
         self.search_entry.bind("<KeyRelease>", self.on_search_keypress)
 
-        # Add Button
-        self.add_btn = tk.Button(
-            self.top_bar, text="+ Add Record", bg="#8c52ff", fg="#f1f5f9", 
-            font=("Arial", 10, "bold"), relief="flat", padx=20, pady=8,
-            activebackground="#334155", activeforeground="#8c52ff",
-            command=self.open_add_form, cursor="hand2"
-        )
+        self.add_btn = tk.Button(self.top_bar, text="+ Add Record", bg="#8c52ff", fg="#f1f5f9", 
+                                font=("Arial", 10, "bold"), relief="flat", padx=20, pady=8,
+                                command=self.open_add_form, cursor="hand2")
         self.add_btn.pack(side="right", padx=5)
 
-        # Table Container
+        self.import_btn = tk.Button(self.top_bar, text="Import CSV", bg="#334155", fg="#f1f5f9", 
+                                   font=("Arial", 10, "bold"), relief="flat", padx=15, pady=8,
+                                   command=self.import_csv, cursor="hand2")
+        self.import_btn.pack(side="right", padx=5)
+        
+        self.setup_pagination_ui()
+
         self.tree_frame = tk.Frame(self.main_window, bg="#101218")
-        self.tree_frame.pack(expand=True, fill="both", padx=20, pady=10)
+        self.tree_frame.pack(expand=True, fill="both", padx=20, pady=(10, 0))
 
         self.tree = ttk.Treeview(self.tree_frame, show="headings")
         self.tree.tag_configure('evenrow', background='#161b22')
-        self.tree.pack(expand=True, fill="both")
         
-        # Click detection for Actions
+        self.tree.pack(side="left", expand=True, fill="both")
         self.tree.bind("<ButtonRelease-1>", self.handle_table_click)
 
 
     def setup_pagination_ui(self):
-        self.pagination_frame = tk.Frame(self.main_window, bg="#2b2b2b")
+        self.pagination_frame = tk.Frame(self.main_window, bg="#101218")
         self.pagination_frame.pack(side="bottom", fill="x", pady=10)
 
-        self.next_btn = tk.Button(self.pagination_frame, text=">", bg="#3c3f41", fg="white", 
-                                   command=self.next_page, relief="flat", padx=10)
+        self.next_btn = tk.Button(self.pagination_frame, text="Next >", bg="#334155", fg="#f1f5f9", 
+                                  relief="flat", padx=15, command=self.next_page, cursor="hand2")
         self.next_btn.pack(side="right", padx=20)
 
-        self.page_label = tk.Label(self.pagination_frame, text="Page 1 of 1", bg="#2b2b2b", fg="white")
+        self.page_label = tk.Label(self.pagination_frame, text="Page 1 of 1", bg="#101218", fg="#64748b")
         self.page_label.pack(side="right", padx=10)
 
-        self.prev_btn = tk.Button(self.pagination_frame, text="<", bg="#3c3f41", fg="white", 
-                                   command=self.prev_page, relief="flat", padx=10)
+        self.jump_entry = tk.Entry(self.pagination_frame, width=5, bg="#334155", fg="#f1f5f9", 
+                                   relief="flat", insertbackground="#8c52ff", justify="center")
+        self.jump_entry.pack(side="right", padx=5)
+        self.jump_entry.bind("<Return>", self.jump_to_page)
+
+        tk.Label(self.pagination_frame, text="Go to:", bg="#101218", fg="#64748b", font=("Arial", 9)).pack(side="right")
+
+        self.prev_btn = tk.Button(self.pagination_frame, text="< Prev", bg="#334155", fg="#f1f5f9", 
+                                  relief="flat", padx=15, command=self.prev_page, cursor="hand2")
         self.prev_btn.pack(side="right", padx=2)
 
-        self.info_label = tk.Label(self.pagination_frame, text="", bg="#2b2b2b", fg="#777", font=("Arial", 9))
+        self.info_label = tk.Label(self.pagination_frame, text="", bg="#101218", fg="#64748b", font=("Arial", 9))
         self.info_label.pack(side="left", padx=20)
-
 
 
     def load_table_data(self, view_type, refresh_cache=True):
@@ -166,14 +183,19 @@ class SSIS_APP:
 
         self.calculate_rows_per_page()
         
+        rpp = self.rows_per_page if self.rows_per_page > 0 else 10
+        
         total_rows = len(self.all_data_cache)
-        self.total_pages = max(1, (total_rows + self.rows_per_page - 1) // self.rows_per_page)
+        
+        self.total_pages = max(1, (total_rows + rpp - 1) // rpp)
         
         if self.current_page > self.total_pages:
             self.current_page = self.total_pages
+        if self.current_page < 1:
+            self.current_page = 1
 
-        start_idx = (self.current_page - 1) * self.rows_per_page
-        end_idx = start_idx + self.rows_per_page
+        start_idx = (self.current_page - 1) * rpp
+        end_idx = start_idx + rpp
         page_data = self.all_data_cache[start_idx:end_idx]
 
         default_cols = {
@@ -189,13 +211,26 @@ class SSIS_APP:
 
         all_cols = cols + ["actions"]
         self.tree.configure(columns=all_cols)
+        self.adjust_column_widths(cols)
+
+        sort_col = getattr(self, 'current_sort_col', None)
+        sort_rev = getattr(self, 'current_sort_reverse', False)
 
         for col in cols:
-            self.tree.heading(col, text=col.replace("_", " ").upper(), 
-                            command=lambda c=col: self.sort_column(c, False))
-            self.tree.column(col, width=150, minwidth=100, anchor="center", stretch=True)
+            base_name = col.replace("_", " ").upper()
+            display_name = base_name
+            if col == sort_col:
+                display_name += "  ▼" if sort_rev else "  ▲"
 
-        self.tree.heading("actions", text="ACTIONS")
+            self.tree.heading(
+                col, 
+                text=display_name, 
+                anchor="w",
+                command=lambda c=col, r=sort_rev: self.sort_column(c, not r if c == sort_col else False)
+            )
+            self.tree.column(col, anchor="w")
+
+        self.tree.heading("actions", text="ACTIONS", anchor="center")
         self.tree.column("actions", width=100, minwidth=100, anchor="center", stretch=False)
 
         for item in self.tree.get_children(): 
@@ -203,11 +238,36 @@ class SSIS_APP:
         
         for i, row in enumerate(page_data):
             tag = ('evenrow',) if i % 2 != 0 else ()
-            self.tree.insert("", "end", values=list(row.values()) + ["📝   🗑"], tags=tag)
+            
+            wrapped_row_values = []
+            for val in row.values():
+                text = str(val)
+                if len(text) > 35:
+                    import textwrap
+                    text = "\n".join(textwrap.wrap(text, width=35))
+                wrapped_row_values.append(text)
+            
+            self.tree.insert("", "end", values=wrapped_row_values + [f"\ue3c9   \ue872"], tags=tag)
+
+        total_rows = len(self.all_data_cache)
+        calculated_total_pages = max(1, (total_rows + self.rows_per_page - 1) // self.rows_per_page)
+        self.total_pages = calculated_total_pages
 
         self.page_label.config(text=f"Page {self.current_page} of {self.total_pages}")
-        self.info_label.config(text=f"Showing {start_idx + 1} to {min(end_idx, total_rows)} of {total_rows} entries")
+        
+        start_num = start_idx + 1 if total_rows > 0 else 0
+        end_num = min(end_idx, total_rows)
+        self.info_label.config(text=f"Showing {start_num} to {end_num} of {total_rows} entries")
 
+        if self.current_page <= 1:
+            self.prev_btn.config(state="disabled", bg="#1a1a1a", fg="#4a4a4a")
+        else:
+            self.prev_btn.config(state="normal", bg="#334155", fg="#f1f5f9")
+
+        if self.current_page >= self.total_pages:
+            self.next_btn.config(state="disabled", bg="#1a1a1a", fg="#4a4a4a")
+        else:
+            self.next_btn.config(state="normal", bg="#334155", fg="#f1f5f9")
 
     def handle_table_click(self, event):
         item = self.tree.identify_row(event.y)
@@ -217,9 +277,12 @@ class SSIS_APP:
         cols = self.tree["columns"]
         if column == f"#{len(cols)}":
             row_vals = self.tree.item(item, "values")
-            x_in_cell = event.x - self.tree.bbox(item, column)[0]
+            bbox = self.tree.bbox(item, column)
+            if not bbox: return
             
-            if x_in_cell < 45:
+            x_in_cell = event.x - bbox[0]
+            
+            if x_in_cell < 50: 
                 self.open_add_form(edit_mode=True, item_id=row_vals[0], current_vals=row_vals)
             else:
                 self.confirm_single_delete(item, row_vals[0])
@@ -239,7 +302,6 @@ class SSIS_APP:
         self.current_view = view_type
         self.add_btn.config(text=f"+ Add {view_type[:-1].capitalize()}")
         
-        # Sidebar highlight
         for v, btn in self.nav_buttons.items():
             if v == view_type:
                 btn.config(fg="#8c52ff", bg="#334155")
@@ -276,32 +338,47 @@ class SSIS_APP:
             self.search_entry.insert(0, self.placeholder_text)
             self.search_entry.config(fg="gray")
 
+    def adjust_column_widths(self, cols):
+        min_width = 120
+        max_col_width = 350 
+        char_multiplier = 9 
+        
+        max_lengths = {col: len(col) for col in cols}
+
+        for row in self.all_data_cache:
+            for col in cols:
+                val_len = len(str(row.get(col, "")))
+                if val_len > max_lengths[col]:
+                    max_lengths[col] = val_len
+
+        for col in cols:
+            calculated_width = (max_lengths[col] * char_multiplier) + 30
+            final_width = min(max_col_width, max(min_width, calculated_width))
+            self.tree.column(col, width=final_width, minwidth=min_width, stretch=True)
 
     def sort_column(self, col, reverse):
+        if col == "actions" or not self.all_data_cache:
+            return
+
         try:
-            items = [(self.tree.set(k,col), k) for k in self.tree.get_children('')]
             try:
-                items.sort(key=lambda t: float(t[0]), reverse=reverse)
+                self.all_data_cache.sort(
+                    key=lambda x: float(str(x.get(col, 0)).replace("\n", "").strip()), 
+                    reverse=reverse
+                )
             except ValueError:
-                items.sort(key=lambda t: t[0].lower(), reverse=reverse)
-            for index, (val, k) in enumerate(items):
-                self.tree.move(k, '', index)
-            for i, item in enumerate(self.tree.get_children()):
-                if i % 2 == 0:
-                 self.tree.item(item, tags=())
-                else:
-                    self.tree.item(item, tags=('evenrow',))
-            for c in self.tree["columns"]:
-                clean_name = c.replace("_"," ").upper()
-                if c == col:
-                    arrow = "▼" if reverse else "▲"
-                    self.tree.heading(c, text=clean_name + arrow,
-                                      command=lambda _c=c: self.sort_column(_c, not reverse))
-                else:
-                    self.tree.heading(c, text=clean_name,
-                                      command=lambda _c=c: self.sort_column(_c, False))
+                self.all_data_cache.sort(
+                    key=lambda x: str(x.get(col, "")).lower().replace("\n", "").strip(), 
+                    reverse=reverse
+                )
+
+            self.current_sort_col = col
+            self.current_sort_reverse = reverse
+
+            self.load_table_data(self.current_view, refresh_cache=False)
+
         except Exception as e:
-            messagebox.showerror("Sort error", f"An error occured while sorting {e}")
+            print(f"Sort Error: {e}")
 
 
     def open_add_form(self, edit_mode=False, item_id=None, current_vals=None):
@@ -365,6 +442,49 @@ class SSIS_APP:
                   font=("Arial", 10, "bold"), padx=25, pady=8,
                   command=self.submit_data, cursor="hand2").pack(side="right")
 
+    def import_csv(self):
+        required_headers = {
+            "students": ["student_id", "first_name", "last_name", "year_level", "gender", "program_code"],
+            "programs": ["program_code", "program_name", "college_code"],
+            "colleges": ["college_code", "college_name"]
+        }
+        target_headers = required_headers[self.current_view]
+
+        file_path = filedialog.askopenfilename(
+            title=f"Import {self.current_view.capitalize()} CSV",
+            filetypes=[("CSV files", "*.csv")]
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, mode="r", newline='', encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                file_headers = reader.fieldnames
+
+                if not file_headers:
+                    messagebox.showerror("Error", "The selected file is empty or invald.")
+                    return
+                missing = [h for h in target_headers if h not in file_headers]
+                different = [h for h in file_headers if not h in target_headers]
+
+                if missing:
+                    error_msg = f"Validation Failed!\n\nMissing Columns: {','.join(missing)}"
+                    if different:
+                        error_msg += f"\n\nUnknown columns found: {','.join(different)}"
+                    error_msg += f"\n\nPlease ensure your CSV headers match: {','.join(target_headers)}"
+                    messagebox.showerror("Header Mismatch", error_msg)
+                    return
+                new_records = list(reader)
+                if not new_records:
+                    messagebox.showwarning("Warning", "No data found in the CSV file.")
+                    return
+                if messagebox.askyesno("Confrim Import", f"Import {len(new_records)} records into {self.current_view}?"):
+                    filename = f"{self.current_view}.csv"
+                    db.save_data(filename, target_headers, new_records)
+                    self.load_table_data(self.current_view)
+                    messagebox.showinfo("Success", f"Successfully imported {len(new_records)} records.")
+        except Exception as e:
+            messagebox.showerror("Import Error", f"An error occured: {str(e)}")
 
     def submit_data(self):
         raw_data = {field: widget.get() for field, widget in self.inputs.items()}
@@ -422,7 +542,7 @@ class SSIS_APP:
     def unfocus_widgets(self, event):
         clicked_widget = event.widget
         
-        if clicked_widget != self.search_entry:
+        if clicked_widget != self.search_entry and clicked_widget != self.jump_entry:
             self.root.focus_set()
             
         if hasattr(self, 'tree') and clicked_widget != self.tree:
@@ -446,19 +566,28 @@ class SSIS_APP:
         self.root.focus_set() 
         self.load_table_data(self.current_view)
     
+    def jump_to_page(self, event=None):
+        try:
+            page = int(self.jump_entry.get())
+            if 1 <= page <= self.total_pages:
+                self.current_page = page
+                self.load_table_data(self.current_view, refresh_cache=False)
+            else:
+                messagebox.showwarning("Invalid Page", f"Please enter a page between 1 and {self.total_pages}")
+        except ValueError:
+            pass
+        self.jump_entry.delete(0, tk.END)
+
     def calculate_rows_per_page(self):
         self.root.update_idletasks()
-        
         available_height = self.tree_frame.winfo_height()
         
-        row_height = 45 
+        if available_height <= 1:
+            self.rows_per_page = 10 
+            return
+
         header_height = 45
+        row_height = 60 
         
         usable_height = available_height - header_height
-        dynamic_rows = usable_height // row_height
-        
-        self.rows_per_page = max(1, dynamic_rows)
-
-    def on_window_resize(self, event):
-        if event.widget == self.root:
-            self.load_table_data(self.current_view, refresh_cache=False)
+        self.rows_per_page = max(1, usable_height // row_height)
