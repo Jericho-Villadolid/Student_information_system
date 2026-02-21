@@ -190,6 +190,7 @@ class PaginationBar(tk.Frame):
 class SSIS_APP:
     def __init__(self, root):
         self.root = root
+        self.root.after(200, lambda: self.switch_view("students"))
         self.root.title("Student Information System")
         self.root.state("zoomed")
 
@@ -422,6 +423,10 @@ class SSIS_APP:
     def configure_tree_columns(self, cols):
         all_cols = cols + ["edit", "delete"]
         self.tree.configure(columns=all_cols)
+        self.adjust_column_widths(cols)
+
+        sort_col = getattr(self, 'current_sort_col', None)
+        sort_rev = getattr(self, 'current_sort_reverse', False)
 
         # Calculate optimal widths for data columns
         max_lengths = {col: len(col) for col in cols}
