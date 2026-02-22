@@ -25,7 +25,7 @@ class Config:
     FONT_SIZE_SMALL = 8
     TREE_ROW_HEIGHT = 55
     TREE_HEADER_HEIGHT = 45
-    TREE_CHAR_WIDTH = 9          # multiplier for column width calculation
+    TREE_CHAR_WIDTH = 9
     MAX_COL_WIDTH = 350
     MIN_COL_WIDTH = 120
 
@@ -46,14 +46,14 @@ class Config:
         "colleges": "college_code"
     }
 
-    # Default columns for each view (used when CSV is empty)
+    # Default columns for each view
     DEFAULT_COLUMNS = {
         "students": ["student_id", "first_name", "last_name", "year_level", "gender", "program_code"],
         "programs": ["program_code", "program_name", "college_code"],
         "colleges": ["college_code", "college_name"]
     }
 
-    # Form field labels (in order)
+    # Form field labels
     FORM_FIELDS = {
         "students": ["Student ID", "First Name", "Last Name", "Year Level", "Gender", "Program Code"],
         "programs": ["Program Code", "Program Name", "College Code"],
@@ -104,17 +104,17 @@ class PaginationBar(tk.Frame):
         self.rows_per_page = Config.DEFAULT_ROWS_PER_PAGE
 
         # Create widgets
-        self.prev_btn = tk.Button(
-            self, text="< Prev", bg=Config.BG_INPUT, fg=Config.FG_LIGHT,
-            relief="flat", padx=15, command=self._prev, cursor="hand2"
-        )
-        self.prev_btn.pack(side="right", padx=2)
-
         self.next_btn = tk.Button(
             self, text="Next >", bg=Config.BG_INPUT, fg=Config.FG_LIGHT,
             relief="flat", padx=15, command=self._next, cursor="hand2"
         )
         self.next_btn.pack(side="right", padx=20)
+
+        self.prev_btn = tk.Button(
+            self, text="< Prev", bg=Config.BG_INPUT, fg=Config.FG_LIGHT,
+            relief="flat", padx=15, command=self._prev, cursor="hand2"
+        )
+        self.prev_btn.pack(side="right", padx=2)
 
         self.page_label = tk.Label(
             self, text="Page 1 of 1", bg=Config.BG_DARK, fg=Config.FG_MUTED
@@ -190,7 +190,6 @@ class PaginationBar(tk.Frame):
 class SSIS_APP:
     def __init__(self, root):
         self.root = root
-        self.root.after(200, lambda: self.switch_view("students"))
         self.root.title("Student Information System")
         self.root.state("zoomed")
 
@@ -208,21 +207,21 @@ class SSIS_APP:
         # For debouncing search
         self._search_after_id = None
 
-        # Hover tracking for cursor
-        self.current_hover_column = None   # not used for styling anymore, kept for potential future
+        # Hover tracking
+        self.current_hover_column = None
 
         # Bind global events
         self.root.bind("<Button-1>", self.unfocus_widgets)
         self.root.bind("<Control-Right>", lambda e: self.next_page())
         self.root.bind("<Control-Left>", lambda e: self.prev_page())
 
-        # Setup UI (order matters)
-        self.setup_styles()               # ttk styles only
-        self.create_widgets()              # creates self.tree
-        self.switch_view("students")        # load initial data
+        # Setup UI
+        self.setup_styles()
+        self.create_widgets()
+        self.switch_view("students")
 
     # ------------------------------------------------------------------
-    # UI Setup (styles, widgets)
+    # UI Setup
     # ------------------------------------------------------------------
     def setup_styles(self):
         style = ttk.Style()
@@ -269,12 +268,12 @@ class SSIS_APP:
         self.main_window = tk.Frame(self.root, bg=Config.BG_DARK)
         self.main_window.pack(side="right", expand=True, fill="both")
 
-        # Top bar (search + buttons)
+        # Top bar
         self.top_bar = tk.Frame(self.main_window, bg=Config.BG_DARK)
         self.top_bar.pack(side="top", fill="x", padx=20, pady=10)
         self.create_top_bar()
 
-        # Pagination bar – pack it at the bottom FIRST
+        # Pagination bar – pack at bottom FIRST
         self.pagination = PaginationBar(
             self.main_window,
             on_prev=self.prev_page,
@@ -284,7 +283,7 @@ class SSIS_APP:
         )
         self.pagination.pack(side="bottom", fill="x", pady=10)
 
-        # Tree frame – will take all remaining space above pagination
+        # Tree frame
         self.tree_frame = tk.Frame(self.main_window, bg=Config.BG_DARK)
         self.tree_frame.pack(expand=True, fill="both", padx=20, pady=(10, 0))
 
@@ -339,7 +338,6 @@ class SSIS_APP:
             relief="flat", bd=0, cursor="hand2", font=(Config.FONT_FAMILY, 10, "bold"),
             command=self.clear_search_text
         )
-        # Not packed initially; will appear when typing
 
         self.search_entry.bind("<FocusIn>", self.clear_placeholder)
         self.search_entry.bind("<FocusOut>", self.restore_placeholder)
@@ -408,7 +406,7 @@ class SSIS_APP:
                 wrapped_vals.append(text)
 
             self.tree.insert("", "end", values=wrapped_vals + ["Edit", "Delete"],
-                             tags=tag)   # No action-specific tags
+                             tags=tag)
 
         # Update pagination bar
         self.pagination.update(
@@ -423,10 +421,6 @@ class SSIS_APP:
     def configure_tree_columns(self, cols):
         all_cols = cols + ["edit", "delete"]
         self.tree.configure(columns=all_cols)
-        self.adjust_column_widths(cols)
-
-        sort_col = getattr(self, 'current_sort_col', None)
-        sort_rev = getattr(self, 'current_sort_reverse', False)
 
         # Calculate optimal widths for data columns
         max_lengths = {col: len(col) for col in cols}
@@ -574,8 +568,6 @@ class SSIS_APP:
 
     def clear_search_text(self):
         self.search_entry.delete(0, tk.END)
-        self.search_entry.insert(0, self.placeholder_text)
-        self.search_entry.config(fg="gray")
         self.clear_btn.pack_forget()
         self.root.focus_set()
         self.load_table_data(self.current_view, refresh_cache=True)
@@ -745,7 +737,7 @@ class SSIS_APP:
         cols = self.tree["columns"]
         col_index = int(column.replace("#", "")) - 1
         row_vals = self.tree.item(item, "values")
-        data_cols_count = len(cols) - 2  # number of data columns (excluding edit/delete)
+        data_cols_count = len(cols) - 2
 
         if col_index == data_cols_count:          # edit column
             self.open_add_form(
@@ -772,7 +764,6 @@ class SSIS_APP:
             headers = list(data[0].keys())
             new_data = [row for row in data if str(row[pk_col]) != str(pk)]
             db.save_data(filename, headers, new_data)
-            db.delete_record(filename, pk_col, pk)
 
         self.load_table_data(self.current_view, refresh_cache=True)
 

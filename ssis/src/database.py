@@ -30,23 +30,31 @@ def save_data(filename, headers, data):
         writer.writeheader()
         writer.writerows(clean_data)
 
-def append_row(filename, headers, new_row_dict):
+def append_row(filename, suggested_headers, new_row_dict):
     data = read_data(filename)
-    clean_new = {h: new_row_dict.get(h, '') for h in headers}
+    if data:
+        existing_headers = list(data[0].keys())
+    else:
+        existing_headers = suggested_headers
+
+    clean_new = {h: new_row_dict.get(h, '') for h in existing_headers}
     data.append(clean_new)
-    save_data(filename, headers, data)
+    save_data(filename, existing_headers, data)
 
 def update_row(filename, pk_value, updated_dict):
     data = read_data(filename)
     if not data:
         return
     id_field = list(updated_dict.keys())[0]
+    headers = list(data[0].keys())
     for i, row in enumerate(data):
         if str(row[id_field]) == str(pk_value):
-            row.update(updated_dict)
+            for key, value in updated_dict.items():
+                if key in headers:
+                    row[key] = value
             data[i] = row
             break
-    save_data(filename, list(data[0].keys()), data)
+    save_data(filename, headers, data)
 
 def is_unique(filename, column_name, new_value):
     current_data = read_data(filename)

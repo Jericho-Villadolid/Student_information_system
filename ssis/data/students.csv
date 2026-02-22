@@ -234,7 +234,7 @@ student_id,first_name,last_name,year_level,gender,program_code
 2024-0233,John,Williams,2,M,BSBIO-ANBIO
 2024-0234,David,Martinez,2,O,BSSTAT
 2025-0235,Christopher,Williams,1,M,BSBIO
-2023-0236,William,Williams,3,O,BSPSYCH
+2023-0236,William,Williamson III,3,O,BSPSYCH
 2025-0237,Jennifer,Jones,1,O,BAPSYCH
 2022-0238,Elizabeth,Brown,4,F,BAELS
 2023-0239,Michael,Rodriguez,3,M,BSENE
@@ -1500,3 +1500,4 @@ student_id,first_name,last_name,year_level,gender,program_code
 2024-1499,Barbara,Smith,2,F,BSN
 2025-1500,Joseph,Johnson,1,O,BSSTAT
 2025-1501,Bob,Ross,1,M,BSCS
+2025-1502,Maqi Monkey,Koykoy,4,F,BSSTAT
