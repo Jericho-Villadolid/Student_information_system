@@ -218,7 +218,9 @@ class SSIS_APP:
         # Setup UI
         self.setup_styles()
         self.create_widgets()
-        self.switch_view("students")
+        
+        # Delay initial load to let UI render properly
+        self.root.after(100, lambda: self.switch_view("students"))
 
     # ------------------------------------------------------------------
     # UI Setup
