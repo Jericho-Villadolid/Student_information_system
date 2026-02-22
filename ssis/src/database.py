@@ -64,6 +64,16 @@ def is_unique(filename, column_name, new_value):
         for row in current_data
     )
 
+def is_unique_excluding(filename, column, new_value, exclude_value):
+    data = read_data(filename)
+    normalized_new = str(new_value).strip().lower()
+    normalized_exclude = str(exclude_value).strip().lower()
+    for row in data:
+        row_val = str(row.get(column, "")).strip().lower()
+        if row_val == normalized_new and row_val != normalized_exclude:
+            return False
+    return True
+
 def is_valid_student_id(student_id):
     return bool(re.match(r"^\d{4}-\d{4}$", student_id))
 
@@ -113,22 +123,27 @@ def delete_record(filename, pk_column, pk_value):
     new_data = [row for row in data if str(row[pk_column]) != str(pk_value)]
     save_data(filename, headers, new_data)
 
-def update_college_cascade(old_code, new_code):
+def update_college_cascade(old_code, updated_dict):
+    new_code = updated_dict['college_code']
+    new_name = updated_dict['college_name']
+
     colleges = read_data('colleges.csv')
     for college in colleges:
         if college['college_code'] == old_code:
             college['college_code'] = new_code
+            college['college_name'] = new_name
             break
     save_data('colleges.csv', ['college_code', 'college_name'], colleges)
 
-    programs = read_data('programs.csv')
-    updated = False
-    for prog in programs:
-        if prog['college_code'] == old_code:
-            prog['college_code'] = new_code
-            updated = True
-    if updated:
-        save_data('programs.csv', ['program_code', 'program_name', 'college_code'], programs)
+    if old_code != new_code:
+        programs = read_data('programs.csv')
+        updated = False
+        for prog in programs:
+            if prog['college_code'] == old_code:
+                prog['college_code'] = new_code
+                updated = True
+        if updated:
+            save_data('programs.csv', ['program_code', 'program_name', 'college_code'], programs)
 
 def delete_college_cascade(college_code):
     colleges = read_data('colleges.csv')
@@ -143,6 +158,29 @@ def delete_college_cascade(college_code):
             updated = True
     if updated:
         save_data('programs.csv', ['program_code', 'program_name', 'college_code'], programs)
+
+def update_program_cascade(old_code, updated_dict):
+    new_code = updated_dict['program_code']
+    new_name = updated_dict['program_name']
+
+    programs = read_data('programs.csv')
+    for prog in programs:
+        if prog['program_code'] == old_code:
+            prog['program_code'] = new_code
+            prog['program_name'] = new_name
+            break
+    save_data('programs.csv', ['program_code', 'program_name', 'college_code'], programs)
+
+    if old_code != new_code:
+        students = read_data('students.csv')
+        updated = False
+        for s in students:
+            if s['program_code'] == old_code:
+                s['program_code'] = new_code
+                updated = True
+        if updated:
+            headers = ['student_id', 'first_name', 'last_name', 'year_level', 'gender', 'program_code']
+            save_data('students.csv', headers, students)
 
 def delete_program_cascade(program_code):
     programs = read_data('programs.csv')

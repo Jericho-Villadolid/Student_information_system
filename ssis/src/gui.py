@@ -32,6 +32,10 @@ class Config:
     # Pagination
     DEFAULT_ROWS_PER_PAGE = 10
 
+    # Window constraints
+    MIN_ROWS_VISIBLE = 5
+    MIN_TOTAL_WIDTH = 700  # sidebar(220) + enough for the narrowest table
+
     # File names
     CSV_FILES = {
         "students": "students.csv",
@@ -196,6 +200,7 @@ class SSIS_APP:
         # State variables
         self.current_view = "students"
         self.all_data_cache = []
+        self.unfiltered_cache = []
         self.current_page = 1
         self.rows_per_page = Config.DEFAULT_ROWS_PER_PAGE
         self.total_pages = 1
@@ -206,6 +211,12 @@ class SSIS_APP:
 
         # For debouncing search
         self._search_after_id = None
+
+        # For debouncing window resize
+        self._resize_after_id = None
+
+        # Re-entrancy guard for tree Configure events
+        self._configuring = False
 
         # Hover tracking
         self.current_hover_column = None
@@ -221,6 +232,9 @@ class SSIS_APP:
         
         # Delay initial load to let UI render properly
         self.root.after(100, lambda: self.switch_view("students"))
+
+        # Set minimum window size once UI has rendered
+        self.root.after(200, self._update_min_size)
 
     # ------------------------------------------------------------------
     # UI Setup
@@ -285,14 +299,29 @@ class SSIS_APP:
         )
         self.pagination.pack(side="bottom", fill="x", pady=10)
 
-        # Tree frame
+        # Outer frame — what pack sees, fills remaining space
         self.tree_frame = tk.Frame(self.main_window, bg=Config.BG_DARK)
         self.tree_frame.pack(expand=True, fill="both", padx=20, pady=(10, 0))
 
-        # Treeview
+        # Grid layout inside tree_frame: tree row expands, scrollbar row is fixed
+        self.tree_frame.grid_rowconfigure(0, weight=1)   # tree — takes all space
+        self.tree_frame.grid_rowconfigure(1, weight=0)   # scrollbar — fixed height
+        self.tree_frame.grid_columnconfigure(0, weight=1)
+
+        # Treeview in row 0
         self.tree = ttk.Treeview(self.tree_frame, show="headings")
         self.tree.tag_configure('evenrow', background='#161b22')
-        self.tree.pack(side="left", expand=True, fill="both")
+        self.tree.grid(row=0, column=0, sticky="nsew")
+
+        # Scrollbar in row 1 — hidden until needed via grid_remove/grid
+        self.h_scroll = ttk.Scrollbar(self.tree_frame, orient="horizontal",
+                                      command=self.tree.xview)
+        self.h_scroll.grid(row=1, column=0, sticky="ew")
+        self.h_scroll.grid_remove()   # hidden by default
+        self.tree.configure(xscrollcommand=self.h_scroll.set)
+
+        # Single Configure bind handles both resize recalc and scrollbar visibility
+        self.tree.bind("<Configure>", self._on_tree_configure)
 
         # Bindings
         self.tree.bind("<ButtonRelease-1>", self.handle_table_click)
@@ -366,10 +395,9 @@ class SSIS_APP:
     def load_table_data(self, view_type, refresh_cache=True):
         if refresh_cache:
             self.all_data_cache = db.read_data(Config.CSV_FILES[view_type])
+            self.unfiltered_cache = self.all_data_cache[:]
             self._apply_sort()
             self.current_page = 1
-
-        self.calculate_rows_per_page()
 
         rpp = self.rows_per_page if self.rows_per_page > 0 else Config.DEFAULT_ROWS_PER_PAGE
         total_rows = len(self.all_data_cache)
@@ -423,6 +451,7 @@ class SSIS_APP:
     def configure_tree_columns(self, cols):
         all_cols = cols + ["edit", "delete"]
         self.tree.configure(columns=all_cols)
+        overflow_active = self.h_scroll.winfo_ismapped()
 
         # Calculate optimal widths for data columns
         max_lengths = {col: len(col) for col in cols}
@@ -448,7 +477,7 @@ class SSIS_APP:
                         max(Config.MIN_COL_WIDTH,
                             max_lengths[col] * Config.TREE_CHAR_WIDTH + 30))
             self.tree.column(col, width=width, minwidth=Config.MIN_COL_WIDTH,
-                             anchor="w", stretch=True)
+                             anchor="w", stretch=not overflow_active)
 
         # Edit column – header "Actions"
         self.tree.heading("edit", text="Actions", anchor="center")
@@ -460,12 +489,86 @@ class SSIS_APP:
 
     def calculate_rows_per_page(self):
         self.root.update_idletasks()
-        available_height = self.tree_frame.winfo_height()
+        # Read the tree widget's own height — the scrollbar lives in a separate
+        # grid row so it never affects this measurement
+        available_height = self.tree.winfo_height()
         if available_height <= 1:
             self.rows_per_page = Config.DEFAULT_ROWS_PER_PAGE
             return
         usable_height = available_height - Config.TREE_HEADER_HEIGHT
         self.rows_per_page = max(1, usable_height // Config.TREE_ROW_HEIGHT)
+
+    def on_resize(self, event=None):
+        """Debounced handler for tree_frame resize — recalculates rows per page."""
+        if self._resize_after_id:
+            self.root.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.root.after(150, self._apply_resize)
+
+    def _apply_resize(self):
+        """Called after resize debounce settles — redraws the current page if rpp changed."""
+        old_rpp = self.rows_per_page
+        self.calculate_rows_per_page()
+        if self.rows_per_page != old_rpp and self.all_data_cache:
+            # Clamp current page so it stays valid under the new rpp
+            total_rows = len(self.all_data_cache)
+            self.total_pages = max(1, (total_rows + self.rows_per_page - 1) // self.rows_per_page)
+            if self.current_page > self.total_pages:
+                self.current_page = self.total_pages
+            self.load_table_data(self.current_view, refresh_cache=False)
+        self._update_min_size()
+
+    def _on_tree_configure(self, event=None):
+        """Single handler for tree <Configure>.
+        Guard prevents re-entrancy: changing column stretch fires Configure
+        again, which would cause an infinite loop without this check."""
+        if self._configuring:
+            return
+        self._configuring = True
+        try:
+            self._update_h_scroll()
+            self.on_resize()
+        finally:
+            self._configuring = False
+
+    def _update_h_scroll(self, event=None):
+        """Show/hide the horizontal scrollbar based on whether columns overflow.
+        Only toggles stretch and scrollbar visibility — never calls load_table_data,
+        which would cause a Configure feedback loop."""
+        self.root.update_idletasks()
+        tree_width = self.tree.winfo_width()
+        if tree_width <= 1 or not self.tree["columns"]:
+            return
+
+        total_col_width = sum(
+            self.tree.column(col, "width")
+            for col in self.tree["columns"]
+        )
+
+        overflowing = total_col_width > tree_width
+        scroll_visible = self.h_scroll.winfo_ismapped()
+
+        if overflowing and not scroll_visible:
+            for col in self.tree["columns"]:
+                self.tree.column(col, stretch=False)
+            self.h_scroll.grid()
+
+        elif not overflowing and scroll_visible:
+            for col in (c for c in self.tree["columns"] if c not in ("edit", "delete")):
+                self.tree.column(col, stretch=True)
+            self.h_scroll.grid_remove()
+
+    def _update_min_size(self):
+        """Enforce a minimum window size: no narrower than MIN_TOTAL_WIDTH,
+        no shorter than what's needed to show MIN_ROWS_VISIBLE table rows."""
+        self.root.update_idletasks()
+
+        top_bar_h = self.top_bar.winfo_height()
+        pagination_h = self.pagination.winfo_height()
+        scroll_h = self.h_scroll.winfo_height() if self.h_scroll.winfo_ismapped() else 0
+        chrome_h = top_bar_h + pagination_h + scroll_h + 40  # 40px padding buffer
+        min_h = chrome_h + Config.TREE_HEADER_HEIGHT + (Config.MIN_ROWS_VISIBLE * Config.TREE_ROW_HEIGHT)
+
+        self.root.minsize(Config.MIN_TOTAL_WIDTH, min_h)
 
     def _apply_sort(self):
         """Sort the current cache based on self.current_sort_col and self.current_sort_reverse."""
@@ -507,25 +610,14 @@ class SSIS_APP:
     def sort_column(self, col):
         if col == "actions" or not self.all_data_cache:
             return
-        reverse = False
+
         if col == self.current_sort_col:
-            reverse = not self.current_sort_reverse
+            self.current_sort_reverse = not self.current_sort_reverse
         else:
-            reverse = False
+            self.current_sort_col = col
+            self.current_sort_reverse = False
 
-        try:
-            self.all_data_cache.sort(
-                key=lambda x: float(str(x.get(col, 0)).replace("\n", "").strip()),
-                reverse=reverse
-            )
-        except ValueError:
-            self.all_data_cache.sort(
-                key=lambda x: str(x.get(col, "")).lower().replace("\n", "").strip(),
-                reverse=reverse
-            )
-
-        self.current_sort_col = col
-        self.current_sort_reverse = reverse
+        self._apply_sort()
         self.load_table_data(self.current_view, refresh_cache=False)
 
     # ------------------------------------------------------------------
@@ -545,16 +637,14 @@ class SSIS_APP:
 
     def filter_search(self):
         query = self.search_entry.get().strip().lower()
-        if query == "" or query == self.placeholder_text.lower():
-            self.load_table_data(self.current_view, refresh_cache=True)
-            return
-
-        all_data = db.read_data(Config.CSV_FILES[self.current_view])
-        filtered = [
-            row for row in all_data
-            if query in " ".join(map(str, row.values())).lower()
-        ]
-        self.all_data_cache = filtered
+        if not query or query == self.placeholder_text.lower():
+            self.all_data_cache = self.unfiltered_cache[:]
+        else:
+            self.all_data_cache = [
+                row for row in self.unfiltered_cache
+                if query in " ".join(map(str, row.values())).lower()
+            ]
+        self._apply_sort()
         self.current_page = 1
         self.load_table_data(self.current_view, refresh_cache=False)
 
@@ -587,13 +677,15 @@ class SSIS_APP:
             else:
                 btn.config(fg=Config.FG_MUTED, bg=Config.BG_DARK)
 
+        self.calculate_rows_per_page()
         self.load_table_data(view_type)
 
     # ------------------------------------------------------------------
     # CRUD Operations
     # ------------------------------------------------------------------
     def open_add_form(self, edit_mode=False, item_id=None, current_vals=None):
-        self.edit_target_id = item_id if edit_mode else None
+        edit_id = item_id.strip() if edit_mode and item_id else None
+
         self.form_window = tk.Toplevel(self.root)
         self.form_window.title("Edit Record" if edit_mode else "Add New Record")
         self.form_window.geometry("500x650")
@@ -640,8 +732,6 @@ class SSIS_APP:
                     entry.set(current_vals[i])
                 else:
                     entry.insert(0, current_vals[i])
-                if i == 0:
-                    entry.config(state="disabled", readonlybackground="#1a1a1a")
 
             self.inputs[field] = entry
 
@@ -658,10 +748,10 @@ class SSIS_APP:
         tk.Button(
             footer, text="Save Record", bg=Config.ACCENT, fg=Config.FG_LIGHT,
             relief="flat", font=(Config.FONT_FAMILY, Config.FONT_SIZE_NORMAL, "bold"),
-            padx=25, pady=8, command=self.submit_data, cursor="hand2"
+            padx=25, pady=8, command=lambda: self.submit_data(edit_id), cursor="hand2"
         ).pack(side="right")
 
-    def submit_data(self):
+    def submit_data(self, edit_target_id=None):
         try:
             raw_data = {field: widget.get().strip() for field, widget in self.inputs.items()}
 
@@ -672,58 +762,78 @@ class SSIS_APP:
             mapping = Config.FIELD_TO_COLUMN[self.current_view]
             final_dict = {mapping[k]: v for k, v in raw_data.items()}
             filename = Config.CSV_FILES[self.current_view]
-            primary_key_val = list(final_dict.values())[0]
 
-            success = False
-            msg = ""
+            if edit_target_id:
+                # ----------------------------------------------------------
+                # EDIT MODE — validate first, then write
+                # ----------------------------------------------------------
+                old_pk = edit_target_id
+                new_pk = list(final_dict.values())[0]
+                pk_col = Config.PK_COLUMN[self.current_view]
 
-            if hasattr(self, 'edit_target_id') and self.edit_target_id:
-                # EDIT MODE
-                if self.current_view == "colleges":
-                    old_code = self.edit_target_id
-                    new_code = final_dict['college_code']
-                    db.update_college_cascade(old_code, new_code)
-                else:
-                    db.update_row(filename, primary_key_val, final_dict)
-                success = True
-                msg = ""
-            else:
-                # ADD MODE - pre‑validation for foreign keys
+                # If PK changed, ensure the new one isn't already taken
+                if old_pk != new_pk:
+                    if not db.is_unique_excluding(filename, pk_col, new_pk, old_pk):
+                        messagebox.showerror("Validation Error",
+                            f"{pk_col.replace('_', ' ').title()} '{new_pk}' already exists.")
+                        return
+
+                # Validate FK relationships before touching the file
                 if self.current_view == "programs":
-                    college_code = final_dict["college_code"].strip()
-                    colleges = db.read_data(Config.CSV_FILES["colleges"])
-                    existing_codes = [c["college_code"].strip().lower() for c in colleges]
-                    if college_code.lower() not in existing_codes:
+                    college_code = final_dict.get("college_code")
+                    if not db.parent_exists("colleges.csv", "college_code", college_code):
                         messagebox.showerror("Validation Error",
-                                            f"College code '{college_code}' does not exist.")
-                        return
-                elif self.current_view == "students":
-                    program_code = final_dict["program_code"].strip()
-                    programs = db.read_data(Config.CSV_FILES["programs"])
-                    existing_codes = [p["program_code"].strip().lower() for p in programs]
-                    if program_code.lower() not in existing_codes:
-                        messagebox.showerror("Validation Error",
-                                            f"Program code '{program_code}' does not exist.")
+                            f"College '{college_code}' does not exist.")
                         return
 
-                # Call database validation
+                elif self.current_view == "students":
+                    import re
+                    sid = final_dict.get("student_id", "")
+                    if not re.match(r"^\d{4}-\d{4}$", sid):
+                        messagebox.showerror("Validation Error",
+                            "Student ID must be in YYYY-NNNN format.")
+                        return
+                    if final_dict.get("gender") not in db.GENDER_OPTIONS:
+                        messagebox.showerror("Validation Error", "Gender must be M, F, or O.")
+                        return
+                    prog = final_dict.get("program_code")
+                    if not db.parent_exists("programs.csv", "program_code", prog):
+                        messagebox.showerror("Validation Error",
+                            f"Program '{prog}' does not exist.")
+                        return
+
+                # All checks passed — write to disk
+                if self.current_view == "colleges":
+                    db.update_college_cascade(old_pk, final_dict)
+                elif self.current_view == "programs":
+                    db.update_program_cascade(old_pk, final_dict)
+                else:
+                    db.update_row(filename, old_pk, final_dict)
+
+            else:
+                # ----------------------------------------------------------
+                # ADD MODE — validate first, then append
+                # ----------------------------------------------------------
                 if self.current_view == "colleges":
                     success, msg = db.validate_college(final_dict["college_code"])
                 elif self.current_view == "programs":
-                    success, msg = db.validate_program(final_dict["program_code"], final_dict["college_code"])
-                else:  # students
-                    success, msg = db.validate_student(final_dict["student_id"], final_dict["gender"], final_dict["program_code"])
+                    success, msg = db.validate_program(
+                        final_dict["program_code"], final_dict["college_code"])
+                else:
+                    success, msg = db.validate_student(
+                        final_dict["student_id"], final_dict["gender"], final_dict["program_code"])
 
-                if success:
-                    db.append_row(filename, list(final_dict.keys()), final_dict)
+                if not success:
+                    messagebox.showerror("Validation Error", msg)
+                    return
 
-            if success:
-                messagebox.showinfo("Success", f"{self.current_view[:-1].capitalize()} saved successfully.")
-                self.form_window.destroy()
-                self.edit_target_id = None
-                self.load_table_data(self.current_view, refresh_cache=True)
-            else:
-                messagebox.showerror("Validation Error", msg)
+                db.append_row(filename, list(final_dict.keys()), final_dict)
+
+            # Shared success path
+            messagebox.showinfo("Success",
+                f"{self.current_view[:-1].capitalize()} saved successfully.")
+            self.form_window.destroy()
+            self.load_table_data(self.current_view, refresh_cache=True)
 
         except Exception as e:
             messagebox.showerror("Unexpected Error", f"An error occurred:\n{str(e)}")
@@ -741,17 +851,27 @@ class SSIS_APP:
         row_vals = self.tree.item(item, "values")
         data_cols_count = len(cols) - 2
 
-        if col_index == data_cols_count:          # edit column
-            self.open_add_form(
-                edit_mode=True,
-                item_id=row_vals[0],
-                current_vals=row_vals[:data_cols_count]
+        if col_index == data_cols_count:
+            # Look up raw record from cache by PK to avoid wrapped display values
+            pk = str(row_vals[0]).strip()
+            pk_col = Config.PK_COLUMN[self.current_view]
+            raw_record = next(
+                (r for r in self.all_data_cache
+                 if str(r.get(pk_col, "")).strip() == pk),
+                None
             )
-        elif col_index == data_cols_count + 1:    # delete column
+            if raw_record:
+                self.open_add_form(
+                    edit_mode=True,
+                    item_id=pk,
+                    current_vals=list(raw_record.values())
+                )
+        elif col_index == data_cols_count + 1:
             self.confirm_single_delete(item, row_vals[0])
 
     def confirm_single_delete(self, item, pk):
-        if not messagebox.askyesno("Confirm Delete", f"Delete record {pk}?"):
+        pk = str(pk).strip()
+        if not messagebox.askyesno("Confirm Delete", f"Delete record '{pk}'?"):
             return
 
         if self.current_view == "colleges":
@@ -759,13 +879,11 @@ class SSIS_APP:
         elif self.current_view == "programs":
             db.delete_program_cascade(pk)
         else:
-            # For students, just delete the student record
-            filename = Config.CSV_FILES[self.current_view]
-            pk_col = Config.PK_COLUMN[self.current_view]
-            data = db.read_data(filename)
-            headers = list(data[0].keys())
-            new_data = [row for row in data if str(row[pk_col]) != str(pk)]
-            db.save_data(filename, headers, new_data)
+            db.delete_record(
+                Config.CSV_FILES[self.current_view],
+                Config.PK_COLUMN[self.current_view],
+                pk
+            )
 
         self.load_table_data(self.current_view, refresh_cache=True)
 
