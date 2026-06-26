@@ -52,7 +52,7 @@ class Config:
 
     # Default columns for each view
     DEFAULT_COLUMNS = {
-        "students": ["student_id", "first_name", "last_name", "year_level", "gender", "program_code"],
+        "students": ["student_id", "first_name", "last_name", "year_level", "gender", "program_code", "college_code"],
         "programs": ["program_code", "program_name", "college_code"],
         "colleges": ["college_code", "college_name"]
     }
@@ -395,6 +395,18 @@ class SSIS_APP:
     def load_table_data(self, view_type, refresh_cache=True):
         if refresh_cache:
             self.all_data_cache = db.read_data(Config.CSV_FILES[view_type])
+            if view_type == "students":
+                programs = db.read_data("programs.csv")
+                program_lookup = {
+                    p["program_code"]: p["college_code"]
+                    for p in programs
+                }
+
+                for student in self.all_data_cache:
+                    student["college_code"] = program_lookup.get(
+                        student.get("program_code", ""),
+                        "N/A"
+            )
             self.unfiltered_cache = self.all_data_cache[:]
             self._apply_sort()
             self.current_page = 1
@@ -715,14 +727,50 @@ class SSIS_APP:
                 font=(Config.FONT_FAMILY, Config.FONT_SIZE_SMALL, "bold")
             ).pack(anchor="w", pady=(0, 5))
 
-            if field in ["Gender", "Year Level"]:
+            if field == "Program Code" and self.current_view == "students":
+                codes = sorted(
+                    row["program_code"]
+                    for row in db.read_data("programs.csv")
+                )
+
+                entry = ttk.Combobox(
+                    frame,
+                    values=codes,
+                    state="readonly",
+                    height=10
+                )
+
+            elif field == "College Code" and self.current_view == "programs":
+                codes = sorted(
+                    row["college_code"]
+                    for row in db.read_data("colleges.csv")
+                )
+
+                entry = ttk.Combobox(
+                    frame,
+                    values=codes,
+                    state="readonly",
+                    height=10
+                )
+
+            elif field in ["Gender", "Year Level"]:
                 values = Config.GENDER_OPTIONS if field == "Gender" else Config.YEAR_OPTIONS
-                entry = ttk.Combobox(frame, values=values, state="readonly")
+
+                entry = ttk.Combobox(
+                    frame,
+                    values=values,
+                    state="readonly"
+                )
+
             else:
                 entry = tk.Entry(
-                    frame, bg=Config.BG_INPUT, fg=Config.FG_LIGHT,
-                    insertbackground=Config.ACCENT, relief="flat",
-                    font=(Config.FONT_FAMILY, Config.FONT_SIZE_LARGE), bd=8
+                    frame,
+                    bg=Config.BG_INPUT,
+                    fg=Config.FG_LIGHT,
+                    insertbackground=Config.ACCENT,
+                    relief="flat",
+                    font=(Config.FONT_FAMILY, Config.FONT_SIZE_LARGE),
+                    bd=8
                 )
 
             entry.pack(fill="x")

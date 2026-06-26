@@ -160,27 +160,43 @@ def delete_college_cascade(college_code):
         save_data('programs.csv', ['program_code', 'program_name', 'college_code'], programs)
 
 def update_program_cascade(old_code, updated_dict):
-    new_code = updated_dict['program_code']
-    new_name = updated_dict['program_name']
+    new_code = updated_dict["program_code"]
+    new_name = updated_dict["program_name"]
+    new_college = updated_dict["college_code"]
 
-    programs = read_data('programs.csv')
+    programs = read_data("programs.csv")
     for prog in programs:
-        if prog['program_code'] == old_code:
-            prog['program_code'] = new_code
-            prog['program_name'] = new_name
+        if prog["program_code"] == old_code:
+            prog["program_code"] = new_code
+            prog["program_name"] = new_name
+            prog["college_code"] = new_college
             break
-    save_data('programs.csv', ['program_code', 'program_name', 'college_code'], programs)
 
+    save_data(
+        "programs.csv",
+        ["program_code", "program_name", "college_code"],
+        programs
+    )
+
+    # Update students only if the program code itself changed
     if old_code != new_code:
-        students = read_data('students.csv')
+        students = read_data("students.csv")
         updated = False
         for s in students:
-            if s['program_code'] == old_code:
-                s['program_code'] = new_code
+            if s["program_code"] == old_code:
+                s["program_code"] = new_code
                 updated = True
+
         if updated:
-            headers = ['student_id', 'first_name', 'last_name', 'year_level', 'gender', 'program_code']
-            save_data('students.csv', headers, students)
+            headers = [
+                "student_id",
+                "first_name",
+                "last_name",
+                "year_level",
+                "gender",
+                "program_code"
+            ]
+            save_data("students.csv", headers, students)
 
 def delete_program_cascade(program_code):
     programs = read_data('programs.csv')
